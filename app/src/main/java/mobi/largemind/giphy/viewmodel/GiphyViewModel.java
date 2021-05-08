@@ -20,7 +20,7 @@ public class GiphyViewModel extends ViewModel {
     private final GiphyRepository repository;
 
     private final MutableLiveData<Query> query = new MutableLiveData<>(Query.trending());
-    private final LiveData<UiState<List<GiphyUiModel>>> gifs = createGifsLiveData();
+    private final LiveData<UiState<List<GiphyUiModel>>> uiState = createUiStateLiveData();
 
     private final List<GiphyUiModel> trending = new ArrayList<>();
     private final List<GiphyUiModel> search = new ArrayList<>();
@@ -31,19 +31,19 @@ public class GiphyViewModel extends ViewModel {
         this.repository = repository;
     }
 
-    public LiveData<UiState<List<GiphyUiModel>>> getGifs() {
-        return gifs;
+    public LiveData<UiState<List<GiphyUiModel>>> getUiState() {
+        return uiState;
     }
 
-    public LiveData<Query> getQuery() {
-        return query;
+    public Query getQuery() {
+        return query.getValue();
     }
 
     public void setQuery(Query query) {
         this.query.setValue(query);
     }
 
-    private LiveData<UiState<List<GiphyUiModel>>> createGifsLiveData() {
+    private LiveData<UiState<List<GiphyUiModel>>> createUiStateLiveData() {
         return Transformations.switchMap(query, query -> {
             switch (query.getType()) {
                 case TRENDING:

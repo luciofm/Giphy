@@ -2,8 +2,6 @@ package mobi.largemind.giphy.ui;
 
 import android.graphics.drawable.Drawable;
 import android.os.Bundle;
-import android.os.Handler;
-import android.os.Looper;
 import android.util.Log;
 import android.view.Menu;
 import android.view.MenuInflater;
@@ -14,12 +12,11 @@ import androidx.annotation.NonNull;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.appcompat.widget.SearchView;
 import androidx.core.view.ViewCompat;
-import androidx.core.view.WindowCompat;
 import androidx.core.view.WindowInsetsCompat;
-import androidx.core.view.WindowInsetsControllerCompat;
 import androidx.lifecycle.ViewModelProvider;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
+import androidx.swiperefreshlayout.widget.SwipeRefreshLayout;
 
 import com.bumptech.glide.RequestBuilder;
 import com.bumptech.glide.integration.recyclerview.RecyclerViewPreloader;
@@ -31,6 +28,7 @@ import dagger.hilt.android.AndroidEntryPoint;
 import mobi.largemind.giphy.R;
 import mobi.largemind.giphy.databinding.ActivityMainBinding;
 import mobi.largemind.giphy.glide.GlideApp;
+import mobi.largemind.giphy.util.Debouncer;
 import mobi.largemind.giphy.util.EndlessScrollListener;
 import mobi.largemind.giphy.viewmodel.GiphyUiModel;
 import mobi.largemind.giphy.viewmodel.GiphyViewModel;
@@ -41,29 +39,50 @@ import mobi.largemind.giphy.viewmodel.UiState;
 public class MainActivity extends AppCompatActivity {
     private GiphyViewModel viewModel;
     private ActivityMainBinding binding;
-    private final Handler handler = new Handler(Looper.getMainLooper());
     private GiphyAdapter adapter;
     private boolean keyboardVisible = false;
-
-    EndlessScrollListener endlessScrollListener = new EndlessScrollListener() {
-        @Override
-        public void onLoadMore() {
-            Query currentQuery = viewModel.getQuery().getValue();
-            if (currentQuery == null) {
-                currentQuery = Query.trending();
-            }
-            viewModel.setQuery(currentQuery);
-        }
-    };
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         binding = ActivityMainBinding.inflate(getLayoutInflater());
         setContentView(binding.getRoot());
+        setTitle("");
+        setSupportActionBar(binding.toolbar);
+
+        RequestBuilder<Drawable> requestBuilder = GlideApp.with(this).asDrawable();
+        ViewPreloadSizeProvider<GiphyUiModel> preloadSizeProvider = new ViewPreloadSizeProvider<>();
+        adapter = new GiphyAdapter(requestBuilder, preloadSizeProvider);
+
+        RecyclerViewPreloader<GiphyUiModel> preloader =
+                new RecyclerViewPreloader<>(GlideApp.with(this), adapter, preloadSizeProvider, 8);
+        binding.recycler.setLayoutManager(new LinearLayoutManager(this));
+        binding.recycler.setAdapter(adapter);
+        // Glide preloader
+        binding.recycler.addOnScrollListener(preloader);
+        // Load more on scroll
+        binding.recycler.addOnScrollListener(endlessScrollListener);
+        // hide keyboard on scroll
+        binding.recycler.addOnScrollListener(keyboardScrollListener);
+        // keyboard status listener
+        binding.recycler.addOnLayoutChangeListener(layoutChangeListener);
+        // release scrolled Gifs
+        binding.recycler.setRecyclerListener(
+                holder -> {
+                    if (holder instanceof GiphyAdapter.GifViewHolder) {
+                        GiphyAdapter.GifViewHolder gifViewHolder = (GiphyAdapter.GifViewHolder) holder;
+                        GlideApp.with(MainActivity.this).clear(gifViewHolder.getGifView());
+                    }
+                });
+
+        binding.swipeRefresh.setOnRefreshListener(refreshListener);
+
+        binding.title.setOnClickListener(v -> {
+            binding.recycler.smoothScrollToPosition(0);
+        });
 
         viewModel = new ViewModelProvider(this).get(GiphyViewModel.class);
-        viewModel.getGifs().observe(this, uiState -> {
+        viewModel.getUiState().observe(this, uiState -> {
             Log.d("MainActivity", "Current state: " + uiState);
             binding.swipeRefresh.setRefreshing(uiState.getState() == UiState.State.LOADING);
             switch (uiState.getState()) {
@@ -80,46 +99,40 @@ public class MainActivity extends AppCompatActivity {
                     // Don't clear endlessScrollListener loading, so we don't load more items
             }
         });
+    }
 
-        RequestBuilder<Drawable> requestBuilder = GlideApp.with(this).asDrawable();
-        ViewPreloadSizeProvider<GiphyUiModel> preloadSizeProvider = new ViewPreloadSizeProvider<>();
-        adapter = new GiphyAdapter(requestBuilder, preloadSizeProvider);
+    private final Debouncer<String> debouncer = new Debouncer<>("", value -> {
+        viewModel.setQuery(Query.search(value));
+    });
 
-        RecyclerViewPreloader<GiphyUiModel> preloader =
-                new RecyclerViewPreloader<>(GlideApp.with(this), adapter, preloadSizeProvider, 8);
-        binding.recycler.setLayoutManager(new LinearLayoutManager(this));
-        binding.recycler.setAdapter(adapter);
-        binding.recycler.addOnScrollListener(endlessScrollListener);
-        binding.recycler.setRecyclerListener(
-                holder -> {
-                    if (holder instanceof GiphyAdapter.GifViewHolder) {
-                        GiphyAdapter.GifViewHolder gifViewHolder = (GiphyAdapter.GifViewHolder) holder;
-                        GlideApp.with(MainActivity.this).clear(gifViewHolder.getGifView());
-                    }
-                });
-        binding.recycler.addOnScrollListener(keyboardScrollListener);
-        binding.recycler.addOnScrollListener(preloader);
+    SwipeRefreshLayout.OnRefreshListener refreshListener = () -> {
+        Query currentQuery = viewModel.getQuery();
+        if (currentQuery == null) {
+            currentQuery = Query.trending();
+        }
 
-        binding.swipeRefresh.setOnRefreshListener(() -> {
-            Query currentQuery = viewModel.getQuery().getValue();
+        Query newQuery;
+        switch (currentQuery.getType()) {
+            case SEARCH:
+                newQuery = Query.search(currentQuery.getQuery(), true);
+                break;
+            case TRENDING:
+            default:
+                newQuery = Query.trending(true);
+        }
+        viewModel.setQuery(newQuery);
+    };
+
+    EndlessScrollListener endlessScrollListener = new EndlessScrollListener() {
+        @Override
+        public void onLoadMore() {
+            Query currentQuery = viewModel.getQuery();
             if (currentQuery == null) {
                 currentQuery = Query.trending();
             }
-
-            Query newQuery;
-            switch (currentQuery.getType()) {
-                case SEARCH:
-                    newQuery = Query.search(currentQuery.getQuery(), true);
-                    break;
-                case TRENDING:
-                default:
-                    newQuery = Query.trending(true);
-            }
-            viewModel.setQuery(newQuery);
-        });
-
-        binding.recycler.addOnLayoutChangeListener(layoutChangeListener);
-    }
+            viewModel.setQuery(currentQuery);
+        }
+    };
 
     private View.OnLayoutChangeListener layoutChangeListener = new View.OnLayoutChangeListener() {
         @Override
@@ -150,7 +163,7 @@ public class MainActivity extends AppCompatActivity {
     @Override
     protected void onDestroy() {
         binding.recycler.removeOnScrollListener(endlessScrollListener);
-        handler.removeCallbacks(debounceRunnable);
+        debouncer.stop();
         binding.recycler.removeOnLayoutChangeListener(layoutChangeListener);
         super.onDestroy();
     }
@@ -174,7 +187,7 @@ public class MainActivity extends AppCompatActivity {
             public boolean onQueryTextChange(String newText) {
                 Log.d("MainActivity", "onQueryTextChange: " + newText);
                 if (!newText.isEmpty()) {
-                    debounce(newText);
+                    debouncer.debounce(newText);
                 }
                 return true;
             }
@@ -188,15 +201,14 @@ public class MainActivity extends AppCompatActivity {
 
             @Override
             public boolean onMenuItemActionCollapse(MenuItem item) {
-                handler.removeCallbacks(debounceRunnable);
-                debouncedValue = "";
+                debouncer.stop();
                 viewModel.setQuery(Query.trending());
                 return true;
             }
         });
 
         // handle rotations
-        Query query = viewModel.getQuery().getValue();
+        Query query = viewModel.getQuery();
         if (query != null && query.getType() == Query.Type.SEARCH && !query.getQuery().isEmpty()) {
             searchItem.expandActionView();
             searchView.setQuery(query.getQuery(), false);
@@ -204,16 +216,4 @@ public class MainActivity extends AppCompatActivity {
 
         return true;
     }
-
-    private String debouncedValue = "";
-
-    private void debounce(String newText) {
-        handler.removeCallbacks(debounceRunnable);
-        debouncedValue = newText;
-        handler.postDelayed(debounceRunnable, 500);
-    }
-
-    private final Runnable debounceRunnable = () -> {
-        viewModel.setQuery(Query.search(debouncedValue));
-    };
 }

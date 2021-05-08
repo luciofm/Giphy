@@ -1,17 +1,14 @@
 package mobi.largemind.giphy.ui;
 
-import androidx.appcompat.app.AppCompatActivity;
-
 import android.content.Context;
 import android.content.Intent;
 import android.graphics.drawable.Drawable;
 import android.os.Bundle;
 
-import com.bumptech.glide.Glide;
-import com.bumptech.glide.RequestBuilder;
+import androidx.appcompat.app.AppCompatActivity;
+
 import com.bumptech.glide.load.resource.gif.GifDrawable;
 
-import mobi.largemind.giphy.R;
 import mobi.largemind.giphy.databinding.ActivityGiphyBinding;
 import mobi.largemind.giphy.glide.GlideApp;
 import mobi.largemind.giphy.viewmodel.GiphyUiModel;
@@ -30,8 +27,7 @@ public class GiphyActivity extends AppCompatActivity {
 
         GiphyUiModel model = toUiModel(getIntent());
 
-        RequestBuilder<Drawable> requestBuilder = GlideApp.with(this).asDrawable();
-        requestBuilder.load(model).into(binding.gifView).clearOnDetach();
+        GlideApp.with(this).load(model).into(binding.gifView).clearOnDetach();
 
         binding.gifView.setOnClickListener(v -> {
             Drawable drawable = binding.gifView.getDrawable();

@@ -1,5 +1,7 @@
 package mobi.largemind.giphy.glide;
 
+import android.util.Log;
+
 import androidx.annotation.NonNull;
 
 import com.bumptech.glide.load.Options;
@@ -24,8 +26,10 @@ public class GiphyUiModelLoader extends BaseGlideUrlLoader<GiphyUiModel> {
     @Override
     protected String getUrl(GiphyUiModel model, int width, int height, Options options) {
         if (height > model.getFixedHeight() && model.getUrlOriginal() != null) {
+            Log.d("Loader", "Loading original url: " + height + " > " + model.getFixedHeight());
             return model.getUrlOriginal();
         }
+        Log.d("Loader", "Loading fixed height url: " + height + " < " + model.getFixedHeight());
         return model.getFixedHeightUrl();
     }
 
